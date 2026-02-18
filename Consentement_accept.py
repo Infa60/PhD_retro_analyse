@@ -1,14 +1,16 @@
 import pandas as pd
+import os
 
 # =======================================================
 # 1. CONFIGURATION (À MODIFIER PAR VOS CHEMINS DE FICHIERS)
 # =======================================================
 
-# Chemin vers le fichier 1 : Patients à vérifier
-FICHIER_PATIENTS_A_VERIFIER = r"C:\Users\bourgema\OneDrive - Université de Genève\PHD\Part1\CP_children_diagnostic_visit_no_wrong_traitement_unique_patient_Updated.xlsx"
+# Ch
+# Chemin vers le fichier toutes visites
+FICHIER_TOUTES_LES_VISITES = r"C:\Users\bourgema\OneDrive - Université de Genève\PHD\Part1\Export_data\CP_pathologie_good_age_good_treatment_unique_visite.xlsx"
 
-# Chemin vers le fichier 2 : Toutes les visites
-FICHIER_TOUTES_LES_VISITES = r"C:\Users\bourgema\OneDrive - Université de Genève\PHD\Part1\CP_children_diagnostic_visit_traitement_timing.xlsx"
+output_folder = r"C:\Users\bourgema\OneDrive - Université de Genève\PHD\Part1"
+file_c = os.path.join(output_folder, "CP_INCLUSION_visit_list.xlsx")
 
 # Colonnes d'identification
 COLONNE_ID = "ID_Patient"
@@ -22,14 +24,12 @@ DATE_LIMITE = pd.to_datetime("17.03.2017", format="%d.%m.%Y")
 # =======================================================
 
 try:
-    # Charger les deux fichiers Excel
-    df_patients_a_verifier = pd.read_excel(FICHIER_PATIENTS_A_VERIFIER, sheet_name="Check_consentement")
-    df_toutes_les_visites = pd.read_excel(FICHIER_TOUTES_LES_VISITES)
+    df_inclusion_list = pd.read_excel(FICHIER_TOUTES_LES_VISITES)
 
     # Convertir la colonne de date en objet datetime (crucial)
     # Le format "%d.%m.%Y" gère votre format "jj.mm.aaaa"
-    df_toutes_les_visites[COLONNE_DATE] = pd.to_datetime(
-        df_toutes_les_visites[COLONNE_DATE],
+    df_inclusion_list[COLONNE_DATE] = pd.to_datetime(
+        df_inclusion_list[COLONNE_DATE],
         format="%d.%m.%Y",
         errors='coerce'  # Met 'NaT' si une date n'est pas valide
     )
@@ -45,40 +45,24 @@ except Exception as e:
 # 3. FILTRAGE ET IDENTIFICATION
 # =======================================================
 
-# 3.1. Filtrer les visites qui ont eu lieu APRÈS la date limite
-# On utilise le signe '>' pour "strictement après"
-df_visites_apres_limite = df_toutes_les_visites[
-    df_toutes_les_visites[COLONNE_DATE] > DATE_LIMITE
-    ].copy()
+df_inclusion_list_only_CP = df_inclusion_list[df_inclusion_list['CP'] != 'No'].copy()
 
-# 3.2. Récupérer la liste unique des ID des patients ayant une visite après la limite
-patients_avec_visite_recente = df_visites_apres_limite[COLONNE_ID].unique()
+df_inclusion_list_only_CP_only_patient = df_inclusion_list_only_CP[df_inclusion_list_only_CP['Research'] != 'Yes'].copy()
 
-# 3.3. Filtrer le fichier initial (Patients à vérifier)
-# On garde uniquement les patients dont l'ID est dans la liste 'patients_avec_visite_recente'
-df_patients_resultat = df_patients_a_verifier[
-    df_patients_a_verifier[COLONNE_ID].isin(patients_avec_visite_recente)
-].copy()
 
-# =======================================================
-# 4. AFFICHAGE ET SAUVEGARDE DES RÉSULTATS
-# =======================================================
+# 2. On crée un masque (True/False) : est-ce que la visite est avant la limite ?
+df_inclusion_list_only_CP_only_patient['est_avant_limite'] = df_inclusion_list_only_CP_only_patient['DateVisite'] < DATE_LIMITE
 
-print("=" * 60)
-print("ANALYSE DES VISITES APRÈS LE 17 MARS 2017")
-print("=" * 60)
+# 3. On vérifie si TOUTES les lignes de chaque enfant sont True
+# Remplacez 'enfant' par le nom exact de votre colonne d'identifiant (ex: 'ID', 'Nom')
+condition_toutes_visites = df_inclusion_list_only_CP_only_patient.groupby('ID_Patient')['est_avant_limite'].transform('all')
 
-if not df_patients_resultat.empty:
-    print(
-        f"Nombre total de patients ayant eu une visite après le {DATE_LIMITE.strftime('%d/%m/%Y')} : {len(df_patients_resultat)}")
-    print("\nListe des patients du premier fichier qui remplissent la condition (ID_Patient) :")
-    print("-" * 50)
-    # Afficher uniquement la colonne ID_Patient pour une liste claire
-    print(df_patients_resultat[COLONNE_ID].to_string(index=False))
+# 4. On remplit la colonne selon le résultat
+condition_finale = condition_toutes_visites & df_inclusion_list_only_CP_only_patient['Consentement_Generalise'].isna()
 
-    # Suggestion de sauvegarde
-    NOM_FICHIER_RESULTAT = r"C:\Users\bourgema\OneDrive - Université de Genève\PHD\Part1\Patients_Visites_Recentes.xlsx"
-    df_patients_resultat.to_excel(NOM_FICHIER_RESULTAT, index=False)
-    print(f"\n--- Le résultat a été sauvegardé dans : {NOM_FICHIER_RESULTAT} ---")
-else:
-    print(f"Aucun patient du fichier initial n'a eu de visite après le {DATE_LIMITE.strftime('%d/%m/%Y')}.")
+df_inclusion_list_only_CP_only_patient.loc[condition_finale, 'Consentement_Generalise'] = 'Oui_by_default'
+
+# Optionnel : supprimer la colonne temporaire de calcul
+# df = df.drop(columns=['est_avant_limite'])
+
+df_inclusion_list_only_CP_only_patient.to_excel(file_c, index=False)
